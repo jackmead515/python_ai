@@ -2,19 +2,28 @@ import matplotlib.pyplot as plot
 import pandas as pd
 import numpy as np
 import math
-from keras.preprocessing import sequence
+from sklearn.metrics import mean_squared_error
+from sklearn.preprocessing import MinMaxScaler
 from keras import models
 from keras import layers
-from keras import losses
-from keras import metrics
 from keras import optimizers
+from keras import losses
 from datetime import datetime
+
+def load_data():
+  df = pd.read_csv('ames_iowa_30-09-1996_26-10-2019_temp.csv')
+  df = df.drop(['station'], axis=1)
+  df = df.dropna()
+  df.columns = ['time', 'value']
+  # df.time = pd.DatetimeIndex(df.time).astype(np.int64)
+  df.time = [datetime.strptime(x, "%Y-%m-%d %H:%M").timestamp() for x in df.time]
+  return df
 
 def forecast(data, window_size):
   datax, datay = [], []
   for i in range(len(data)-window_size-1):
-    datax.append(data[i:(i+window_size), 0])
-    datay.append(data[i + window_size, 0])
+    datax.append(data[i:(i+window_size), 1])
+    datay.append(data[i + window_size, 1])
   return datax, datay
 
 def split_years(df):
@@ -65,6 +74,23 @@ def split_months(year):
       months.append([])
   return months
 
+def split_days(month):
+  values = np.array(month)
+  days = [[]]
+  index = 0
+  current_day = datetime.fromtimestamp(values[0, 0]).day
+  for pair in values:
+    time = pair[0]
+    temp = pair[1]
+    data_day = datetime.fromtimestamp(time).day
+    if data_day == current_day:
+      days[index].append(np.array([time, temp]))
+    else:
+      index += 1
+      current_day = data_day
+      days.append([])
+  return days
+
 def graph_months(df):
   years = split_years(df)
   months = np.array(split_months(years[9]))
@@ -80,6 +106,22 @@ def graph_months(df):
     plot_index+=1
   plot.show()
 
+def graph_days(df):
+  years = split_years(df)
+  months = split_months(years[9])
+  days = np.array(split_days(months[5]))
+  figure = plot.figure(facecolor='white')
+  plot_index = 1
+  for day in days:
+    day = np.array(day)
+    axis = figure.add_subplot(6, 5, plot_index)
+    axis.set_xlabel(datetime.fromtimestamp(day[0, 0]).day)
+    plot.xticks([])
+    plot.yticks([])
+    plot.plot(day[:, 0], day[:, 1])
+    plot_index+=1
+  plot.show()
+
 def graph_whole(df):
   df = df.set_index('time')
   axis = df.plot.line(grid=True)
@@ -91,15 +133,43 @@ def graph_whole(df):
   plot.show()
   df = df.reset_index()
 
+def points_per_month(df):
+  years = split_years(df)
+  months = np.array(split_months(years[9]))
+  lengths = []
+  for i in range(len(months)):
+    lengths.append(len(months[i]))
+    print('Month: ' + str(i) + ' data points: ' + str(len(months[i])))
+  print('Median: ' + str(np.median(lengths)))
+  print('Mode: ' + str(np.average(lengths)))
+
+def format_data(df, window_size, train_test_split):
+  dataset = np.array(df)
+  # scaler = MinMaxScaler(feature_range=(-1, 1))
+  # dataset = scaler.fit_transform(dataset)
+  datax, datay = forecast(dataset, window_size)
+  tts = int(len(datax)*train_test_split)
+  x_train = np.expand_dims(np.array(datax[:tts]).astype(np.float32), axis=2)
+  y_train = np.expand_dims(np.array(datay[:tts]).astype(np.float32), axis=2)
+  x_test = np.expand_dims(np.array(datax[tts+1:]).astype(np.float32), axis=2)
+  y_test = np.expand_dims(np.array(datay[tts+1:]).astype(np.float32), axis=2)
+  return x_train, y_train, x_test, y_test
+
+def build_network(nodes, window_size, features, optimizer, loss):
+  model = models.Sequential()
+  #dropout=0.2, recurrent_dropout=0.2
+  model.add(layers.LSTM(nodes, dropout=0.1, recurrent_dropout=0.1, input_shape=(window_size, features)))
+  model.add(layers.Dense(1, activation='sigmoid'))
+  model.compile(optimizer=optimizer, loss=loss)
+  return model
+
 ###################################################################################
 # Format
 
-df = pd.read_csv('ames_iowa_30-09-1996_26-10-2019_temp.csv')
-df = df.drop(['station'], axis=1)
-df = df.dropna()
-df.columns = ['time', 'value']
-# df.time = pd.DatetimeIndex(df.time).astype(np.int64)
-df.time = [datetime.strptime(x, "%Y-%m-%d %H:%M").timestamp() for x in df.time]
+print('Loading data...')
+df = load_data()
+
+print('Total Data Points: {}'.format(len(df.time)))
 
 ###################################################################################
 # Visualize
@@ -107,108 +177,60 @@ df.time = [datetime.strptime(x, "%Y-%m-%d %H:%M").timestamp() for x in df.time]
 # graph_whole(df)
 # graph_years(df)
 # graph_months(df)
+# graph_days(df)
+# points_per_month(df)
 
 ###################################################################################
 # Format and Standardize
 
-# x_train, x_test, y_train, y_test = train_test_split(time_data, value_data, test_size=0.2, random_state=42)
-# Why bring in the extra library? No nonsense...
+FEATURES = 1
+WINDOW_SIZE = 168
+TRAIN_TEST_SPLIT = 0.8
 
-WINDOW_SIZE = 100
-TRAIN_TEST_SPLIT = 0.5
-
-dataset = np.array(df)
-
-# Get minimums and maximums for later use
-x_max, x_min = max(dataset[:, 0]), min(dataset[:, 0])
-y_max, y_min = max(dataset[:, 1]), min(dataset[:, 1])
-
-# Normalize values
-dataset[:, 0] = dataset[:, 0] / np.sqrt(np.sum(dataset[:, 0]**2))
-dataset[:, 1] = dataset[:, 1] / np.sqrt(np.sum(dataset[:, 1]**2))
-
-# Forecast values to timeseries perdictions
-datax, datay = forecast(dataset, WINDOW_SIZE)
-
-# Split into test and training set
-tts = int(len(datax)*TRAIN_TEST_SPLIT)
-x_train, y_train = np.array(datax[:tts]), np.array(datay[:tts])
-x_test, y_test = np.array(datax[tts+1:]), np.array(datay[tts+1:])
-
-# Expands the dimensions to watch what keras wants
-x_train, y_train = np.expand_dims(x_train, axis=2), np.expand_dims(y_train, axis=2)
-x_test, y_test = np.expand_dims(x_test, axis=2), np.expand_dims(y_test, axis=2)
-
-print('x_train shape', x_train.shape)
-print('y_train shape', y_train.shape)
-print('x_test shape', x_test.shape)
-print('y_test shape', y_test.shape)
+years = split_years(df)
+months = split_months(years[9])
+x_train, y_train, x_test, y_test = format_data(years[9], WINDOW_SIZE, TRAIN_TEST_SPLIT)
 
 # https://machinelearningmastery.com/multi-step-time-series-forecasting-long-short-term-memory-networks-python
 # https://machinelearningmastery.com/convert-time-series-supervised-learning-problem-python
 
-
-# print('x_train shape', x_train.shape)
-# x_train, y_train = create_forecasted_dataset(dataset, LOOK_BACK)
-
-# scaler = MinMaxScaler(feature_range=(0, 1))
-# dataset = scaler.fit_transform(dataset)
-
-# train_data = dataset[:int(len(dataset)*0.8)]
-# test_data = dataset[int(len(dataset)*0.8):]
-
-# x_train, y_train = create_dataset(train_data, 5)
-# x_test, y_test = create_dataset(test_data, 5)
-
-# x_train = np.reshape(x_train, (x_train.shape[0], 1, x_train.shape[1]))
-# x_test = np.reshape(x_test, (x_test.shape[0], 1, x_test.shape[1]))
-
 ###################################################################################
 # Model
 
-EPOCHS = 1
-BATCH_SIZE = 4000
+print('Running network...')
+NODES = 64
+EPOCHS = 30
+BATCH_SIZE = 500
+OPTIMIZER = optimizers.Adam()
+LOSS = losses.mean_squared_error
 
-model = models.Sequential()
-# model.add(layers.Embedding(len(x_train), 64, input_length=LOOK_BACK))
-model.add(layers.LSTM(32, input_shape=(x_train.shape[1], x_train.shape[2]), return_sequences=False))
-# model.add(layers.Dropout(0.2))
-model.add(layers.Dense(1, activation='sigmoid'))
-model.compile(optimizer='adam', loss='mean_squared_error')
+model = build_network(NODES, WINDOW_SIZE, FEATURES, OPTIMIZER, LOSS)
 history = model.fit(x_train, y_train, epochs=EPOCHS, batch_size=BATCH_SIZE)
 
-# plot.plot(range(EPOCHS), history.history['loss'])
-# plot.show()
-
-xp_test = model.predict(x_test)
-
-print('xp_test', xp_test.shape)
-print('y_test', y_test.shape)
-
-# Un-Normalize
-xp_test = xp_test[:, 0]
-yp_test = y_test[:, 0]
-# xp_test = xp_test*x_max - xp_test*x_min + x_max
-yp_test = yp_test*y_max - yp_test*y_min + y_max
-
-# plot baseline and predictions
-# plot.plot(dataset)
-plot.plot(range(len(xp_test)), xp_test)
+plot.plot(np.arange(EPOCHS), history.history['loss'])
 plot.show()
 
-# EPOCHS = 100
-# LEARNING_RATE = 0.005
-# BATCH_SIZE = 2048
+print('Testing network...')
+x_pred = model.predict(x_test)
 
-# model = models.Sequential()
-# model.add(layers.Dense(400, activation = 'relu', input_shape = (1,)))
-# model.add(layers.Dense(1))
-# model.compile(
-#   optimizer = optimizers.RMSprop(lr = LEARNING_RATE),
-#   loss = losses.mean_squared_error,
-#   metrics = [ metrics.mae ]
-# )
-# history = model.fit(x_train, y_train, epochs = EPOCHS, batch_size = BATCH_SIZE)
+score = np.sqrt(mean_squared_error(x_pred, y_test))
+print("Score (RMSE): {}".format(score))
+
+# # Un-Normalize
+# x_test = x_test[:, 0]
+# y_test = y_test[:, 0]
+# test = np.array(pd.DataFrame({ 'time': y_test, 'temp': x_test }))
+# test = scaler.inverse_transform(test)
+
+# df = pd.DataFrame({ 'time': test[:, 0], 'temp': test[:, 1] })
+# df = df.set_index('time')
+# axis = df.plot.line(grid=True)
+# axis.set_yticklabels(['{}C'.format(y) for y in axis.get_yticks()])
+# axis.set_ylabel('Temperature in C')
+# axis.set_xticklabels([datetime.utcfromtimestamp(x).strftime('%Y-%m-%d') for x in axis.get_xticks()])
+# axis.set_xlabel('Time (1996 - 2019)')
+# axis.get_legend().remove()
+# plot.show()
 
 # x_epochs = [x for x in range(EPOCHS)]
 # plot.plot(x_epochs, history.history['loss'])
