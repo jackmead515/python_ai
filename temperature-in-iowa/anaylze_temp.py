@@ -143,25 +143,78 @@ def points_per_month(df):
   print('Median: ' + str(np.median(lengths)))
   print('Mode: ' + str(np.average(lengths)))
 
-def format_data(df, window_size, train_test_split):
+def format_traintest_data(df, window_size, train_test_split):
+  scaler = MinMaxScaler(feature_range=(-1, 1))
   dataset = np.array(df)
-  # scaler = MinMaxScaler(feature_range=(-1, 1))
-  # dataset = scaler.fit_transform(dataset)
+  dataset = scaler.fit_transform(dataset)
   datax, datay = forecast(dataset, window_size)
   tts = int(len(datax)*train_test_split)
   x_train = np.expand_dims(np.array(datax[:tts]).astype(np.float32), axis=2)
   y_train = np.expand_dims(np.array(datay[:tts]).astype(np.float32), axis=2)
   x_test = np.expand_dims(np.array(datax[tts+1:]).astype(np.float32), axis=2)
   y_test = np.expand_dims(np.array(datay[tts+1:]).astype(np.float32), axis=2)
-  return x_train, y_train, x_test, y_test
+  return x_train, y_train, x_test, y_test, scaler
+
+def format_validation_data(df, window_size):
+  scaler = MinMaxScaler(feature_range=(-1, 1))
+  dataset = np.array(df)
+  dataset = scaler.fit_transform(dataset)
+  datax, datay = forecast(dataset, window_size)
+  x_test = np.expand_dims(np.array(datax).astype(np.float32), axis=2)
+  y_test = np.expand_dims(np.array(datay).astype(np.float32), axis=2)
+  return x_test, y_test, scaler
 
 def build_network(nodes, window_size, features, optimizer, loss):
   model = models.Sequential()
   #dropout=0.2, recurrent_dropout=0.2
-  model.add(layers.LSTM(nodes, dropout=0.1, recurrent_dropout=0.1, input_shape=(window_size, features)))
-  model.add(layers.Dense(1, activation='sigmoid'))
+  model.add(layers.LSTM(nodes, input_shape=(window_size, features)))
+  model.add(layers.Dense(1))
   model.compile(optimizer=optimizer, loss=loss)
   return model
+
+def train_network(model, x_train, y_train, epochs, batch_size):
+  history = model.fit(x_train, y_train, epochs=epochs, batch_size=batch_size)
+  plot.plot(np.arange(epochs), history.history['loss'])
+  plot.show()
+
+def evaluate_network(model, x_test, y_test, batch_size):
+  score = model.evaluate(x_test, y_test)
+  print('Score: {}'.format(score))
+
+def test_network(model, x_test, y_test, scaler):
+  pred_test = model.predict(x_test)
+
+  tscaler = MinMaxScaler()
+  tscaler.min_, tscaler.scale_ = scaler.min_[1], scaler.scale_[1]
+  pred_test = tscaler.inverse_transform(pred_test)
+  y_test = tscaler.inverse_transform(y_test)
+  score = np.sqrt(mean_squared_error(pred_test, y_test))
+  print("Testing Score (RMSE): {}".format(score))
+
+  # plot.plot(np.arange(pred_test.shape[0]), pred_test[:, 0])
+  # plot.plot(np.arange(y_test.shape[0]), y_test[:, 0])
+  # plot.show()
+
+def predict_into_future(model, test, window_size, scaler):
+  preds = []
+  sequence = [test[i, 0] for i in range(window_size)]
+
+  for _ in range(500):
+    pd = model.predict(np.array([
+      np.expand_dims(np.array(sequence), axis=1)
+    ]))[0, 0]
+    preds.append(pd)
+    sequence.append(pd)
+    sequence.pop(0)
+  
+  preds = np.expand_dims(np.array(preds), axis=1)
+  tscaler = MinMaxScaler()
+  tscaler.min_, tscaler.scale_ = scaler.min_[1], scaler.scale_[1]
+  preds = tscaler.inverse_transform(preds)
+  test = tscaler.inverse_transform(test)
+  plot.plot(np.arange(preds.shape[0]), preds[:, 0])
+  plot.plot(np.arange(test.shape[0]-window_size), test[window_size:, 0])
+  plot.show()
 
 ###################################################################################
 # Format
@@ -184,12 +237,17 @@ print('Total Data Points: {}'.format(len(df.time)))
 # Format and Standardize
 
 FEATURES = 1
-WINDOW_SIZE = 168
+WINDOW_SIZE = 12
 TRAIN_TEST_SPLIT = 0.8
+NODES = 8
+EPOCHS = 100
+BATCH_SIZE = 500
+OPTIMIZER = optimizers.Adam()
+LOSS = losses.mean_squared_error
 
 years = split_years(df)
 months = split_months(years[9])
-x_train, y_train, x_test, y_test = format_data(years[9], WINDOW_SIZE, TRAIN_TEST_SPLIT)
+x_train, y_train, x_test, y_test, tscaler = format_traintest_data(years[9], WINDOW_SIZE, TRAIN_TEST_SPLIT)
 
 # https://machinelearningmastery.com/multi-step-time-series-forecasting-long-short-term-memory-networks-python
 # https://machinelearningmastery.com/convert-time-series-supervised-learning-problem-python
@@ -198,23 +256,16 @@ x_train, y_train, x_test, y_test = format_data(years[9], WINDOW_SIZE, TRAIN_TEST
 # Model
 
 print('Running network...')
-NODES = 64
-EPOCHS = 30
-BATCH_SIZE = 500
-OPTIMIZER = optimizers.Adam()
-LOSS = losses.mean_squared_error
-
 model = build_network(NODES, WINDOW_SIZE, FEATURES, OPTIMIZER, LOSS)
-history = model.fit(x_train, y_train, epochs=EPOCHS, batch_size=BATCH_SIZE)
+train_network(model, x_train, y_train, EPOCHS, BATCH_SIZE)
 
-plot.plot(np.arange(EPOCHS), history.history['loss'])
-plot.show()
+#for i in range(len(years)):
 
-print('Testing network...')
-x_pred = model.predict(x_test)
+x_valid, y_valid, vscaler = format_validation_data(years[21], WINDOW_SIZE)
+predict_into_future(model, y_valid, WINDOW_SIZE, vscaler)
+#test_network(model, x_valid, y_valid, vscaler)
 
-score = np.sqrt(mean_squared_error(x_pred, y_test))
-print("Score (RMSE): {}".format(score))
+
 
 # # Un-Normalize
 # x_test = x_test[:, 0]
