@@ -2,6 +2,7 @@ import matplotlib.pyplot as plot
 import pandas as pd
 import numpy as np
 import math
+import time
 from sklearn.metrics import mean_squared_error
 from sklearn.preprocessing import MinMaxScaler
 from keras import models
@@ -173,9 +174,12 @@ def build_network(nodes, window_size, features, optimizer, loss):
   return model
 
 def train_network(model, x_train, y_train, epochs, batch_size):
+  start_time = time.time()
   history = model.fit(x_train, y_train, epochs=epochs, batch_size=batch_size)
-  plot.plot(np.arange(epochs), history.history['loss'])
-  plot.show()
+  end_time = time.time()
+  print('Training Time: ' + str(end_time-start_time) + ' secs')
+  # plot.plot(np.arange(epochs), history.history['loss'])
+  # plot.show()
 
 def evaluate_network(model, x_test, y_test, batch_size):
   score = model.evaluate(x_test, y_test)
@@ -195,25 +199,31 @@ def test_network(model, x_test, y_test, scaler):
   # plot.plot(np.arange(y_test.shape[0]), y_test[:, 0])
   # plot.show()
 
-def predict_into_future(model, test, window_size, scaler):
+def gather_future_predictions(model, test, window_size, future_index):
   preds = []
   sequence = [test[i, 0] for i in range(window_size)]
-
-  for _ in range(500):
+  for _ in range(future_index):
     pd = model.predict(np.array([
       np.expand_dims(np.array(sequence), axis=1)
     ]))[0, 0]
     preds.append(pd)
     sequence.append(pd)
     sequence.pop(0)
+  return preds
+
+def predict_into_future(model, test, window_size, scaler):
+  preds = gather_future_predictions(model, test, window_size, 24)
   
-  preds = np.expand_dims(np.array(preds), axis=1)
   tscaler = MinMaxScaler()
   tscaler.min_, tscaler.scale_ = scaler.min_[1], scaler.scale_[1]
-  preds = tscaler.inverse_transform(preds)
+
   test = tscaler.inverse_transform(test)
-  plot.plot(np.arange(preds.shape[0]), preds[:, 0])
-  plot.plot(np.arange(test.shape[0]-window_size), test[window_size:, 0])
+  plot.plot(np.arange(test.shape[0]-window_size), test[window_size:, 0], color=[1.0, 0.0, 0.0])
+
+  preds = np.expand_dims(np.array(preds), axis=1)
+  preds = tscaler.inverse_transform(preds)
+  plot.plot(np.arange(preds.shape[0]), preds[:, 0], color=[0.0, 0.0, 1.0])
+  
   plot.show()
 
 ###################################################################################
@@ -238,9 +248,9 @@ print('Total Data Points: {}'.format(len(df.time)))
 
 FEATURES = 1
 WINDOW_SIZE = 12
-TRAIN_TEST_SPLIT = 0.8
+TRAIN_TEST_SPLIT = 1
 NODES = 8
-EPOCHS = 100
+EPOCHS = 30
 BATCH_SIZE = 500
 OPTIMIZER = optimizers.Adam()
 LOSS = losses.mean_squared_error
@@ -248,6 +258,7 @@ LOSS = losses.mean_squared_error
 years = split_years(df)
 months = split_months(years[9])
 x_train, y_train, x_test, y_test, tscaler = format_traintest_data(years[9], WINDOW_SIZE, TRAIN_TEST_SPLIT)
+x_valid, y_valid, vscaler = format_validation_data(years[10], WINDOW_SIZE)
 
 # https://machinelearningmastery.com/multi-step-time-series-forecasting-long-short-term-memory-networks-python
 # https://machinelearningmastery.com/convert-time-series-supervised-learning-problem-python
@@ -258,32 +269,5 @@ x_train, y_train, x_test, y_test, tscaler = format_traintest_data(years[9], WIND
 print('Running network...')
 model = build_network(NODES, WINDOW_SIZE, FEATURES, OPTIMIZER, LOSS)
 train_network(model, x_train, y_train, EPOCHS, BATCH_SIZE)
-
-#for i in range(len(years)):
-
-x_valid, y_valid, vscaler = format_validation_data(years[21], WINDOW_SIZE)
-predict_into_future(model, y_valid, WINDOW_SIZE, vscaler)
 #test_network(model, x_valid, y_valid, vscaler)
-
-
-
-# # Un-Normalize
-# x_test = x_test[:, 0]
-# y_test = y_test[:, 0]
-# test = np.array(pd.DataFrame({ 'time': y_test, 'temp': x_test }))
-# test = scaler.inverse_transform(test)
-
-# df = pd.DataFrame({ 'time': test[:, 0], 'temp': test[:, 1] })
-# df = df.set_index('time')
-# axis = df.plot.line(grid=True)
-# axis.set_yticklabels(['{}C'.format(y) for y in axis.get_yticks()])
-# axis.set_ylabel('Temperature in C')
-# axis.set_xticklabels([datetime.utcfromtimestamp(x).strftime('%Y-%m-%d') for x in axis.get_xticks()])
-# axis.set_xlabel('Time (1996 - 2019)')
-# axis.get_legend().remove()
-# plot.show()
-
-# x_epochs = [x for x in range(EPOCHS)]
-# plot.plot(x_epochs, history.history['loss'])
-# plot.plot(x_epochs, history.history['mean_absolute_error'])
-# plot.show()
+predict_into_future(model, y_valid, WINDOW_SIZE, vscaler)
