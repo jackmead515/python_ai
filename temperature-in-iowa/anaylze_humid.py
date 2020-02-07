@@ -94,16 +94,9 @@ def test_network(model, x_test, y_test, scaler):
   plot.plot(np.arange(48), y_test[:48, 0], color=[1.0,0.0,0.0], marker='.')
   plot.show()
 
-# https://machinelearningmastery.com/multi-step-time-series-forecasting-long-short-term-memory-networks-python
-# https://machinelearningmastery.com/convert-time-series-supervised-learning-problem-python
-###################################################################################
-# Format
-
 if __name__ == "__main__":
   print('Loading data...')
-  df = util.load_temp_data()
-
-  print('Total Data Points: {}'.format(len(df.time)))
+  df = util.load_humid_data()
 
   FEATURES = 1
   WINDOW_SIZE = 48
@@ -128,6 +121,9 @@ if __name__ == "__main__":
   print('y_train', y_train.shape)
 
   #x_valid, y_valid, vscaler = format_validation_data(years[10], WINDOW_SIZE)
+
+  ###################################################################################
+  # Model
 
   print('Running network...')
   model = build_network(NODES, WINDOW_SIZE, FUTURE_WINDOW, FEATURES, OPTIMIZER, LOSS)
