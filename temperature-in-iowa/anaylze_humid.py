@@ -13,7 +13,7 @@ from datetime import datetime
 
 import util
 
-def forecast_temp(data, window_size, future_window):
+def forecast(data, window_size, future_window):
   datax, datay = [], []
   for i in range(len(data)-window_size-future_window-1):
     datax.append(data[i:(i+window_size), 1])
@@ -22,23 +22,23 @@ def forecast_temp(data, window_size, future_window):
       datay[i].append(data[i + x + window_size, 1])
   return datax, datay
 
-def forecast_temp_humid(data, window_size, future_window):
-  datax, datay = [], []
-  for i in range(len(data)-window_size-future_window-1):
-    datax.append([
-      data[i:(i+window_size), 1],
-      data[i:(i+window_size), 2]
-    ])
-    datay.append([])
-    for x in range(future_window):
-      datay[i].append(data[i + x + window_size, 1])
-  return datax, datay
+# def forecast_temp_humid(data, window_size, future_window):
+#   datax, datay = [], []
+#   for i in range(len(data)-window_size-future_window-1):
+#     datax.append([
+#       data[i:(i+window_size), 1],
+#       data[i:(i+window_size), 2]
+#     ])
+#     datay.append([])
+#     for x in range(future_window):
+#       datay[i].append(data[i + x + window_size, 1])
+#   return datax, datay
 
 def format_traintest_data(df, window_size, future_window, train_test_split):
   scaler = MinMaxScaler(feature_range=(-1, 1))
   dataset = np.array(df)
   dataset = scaler.fit_transform(dataset)
-  datax, datay = forecast_temp(dataset, window_size, future_window)
+  datax, datay = forecast(dataset, window_size, future_window)
   tts = int(len(datax)*train_test_split)
   x_train = np.array(datax[:tts]).astype(np.float32)
   y_train = np.array(datay[:tts]).astype(np.float32)
@@ -81,7 +81,6 @@ def evaluate_network(model, x_test, y_test, batch_size):
 
 def test_network(model, x_test, y_test, scaler):
   pred_test = model.predict(x_test)
-
   tscaler = MinMaxScaler()
   tscaler.min_, tscaler.scale_ = scaler.min_[1], scaler.scale_[1]
   pred_test = tscaler.inverse_transform(pred_test)

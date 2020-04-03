@@ -6,28 +6,34 @@ import time
 from datetime import datetime
 
 def load_temp_data():
+  print('Loading Temp Data...')
   df = pd.read_csv('ames_iowa_30-09-1996_26-10-2019_temp.csv')
   df = df.drop(['station'], axis=1)
   df = df.dropna()
   df.columns = ['time', 'temp']
   df.time = [datetime.strptime(x, "%Y-%m-%d %H:%M").timestamp() for x in df.time]
+  print('Total Data Points: {}'.format(len(df.time)))
   return df
 
 def load_humid_data():
+  print('Loading Humid Data...')
   df = pd.read_csv('ames_iowa_30-09-1996_26-10-2019_temp_humid.csv')
   df = df.drop(['station'], axis=1)
   df = df.dropna()
   df.columns = ['time', 'temp', 'humid']
   df = df.drop(['temp'], axis=1)
   df.time = [datetime.strptime(x, "%Y-%m-%d %H:%M").timestamp() for x in df.time]
+  print('Total Data Points: {}'.format(len(df.time)))
   return df
 
 def load_temp_humid_data():
+  print('Loading Temp and Humid Data...')
   df = pd.read_csv('ames_iowa_30-09-1996_26-10-2019_temp_humid.csv')
   df = df.drop(['station'], axis=1)
   df = df.dropna()
   df.columns = ['time', 'temp', 'humid']
   df.time = [datetime.strptime(x, "%Y-%m-%d %H:%M").timestamp() for x in df.time]
+  print('Total Data Points: {}'.format(len(df.time)))
   return df
 
 def split_years(df):

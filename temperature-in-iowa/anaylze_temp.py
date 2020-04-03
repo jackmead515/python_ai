@@ -22,17 +22,17 @@ def forecast_temp(data, window_size, future_window):
       datay[i].append(data[i + x + window_size, 1])
   return datax, datay
 
-def forecast_temp_humid(data, window_size, future_window):
-  datax, datay = [], []
-  for i in range(len(data)-window_size-future_window-1):
-    datax.append([
-      data[i:(i+window_size), 1],
-      data[i:(i+window_size), 2]
-    ])
-    datay.append([])
-    for x in range(future_window):
-      datay[i].append(data[i + x + window_size, 1])
-  return datax, datay
+# def forecast_temp_humid(data, window_size, future_window):
+#   datax, datay = [], []
+#   for i in range(len(data)-window_size-future_window-1):
+#     datax.append([
+#       data[i:(i+window_size), 1],
+#       data[i:(i+window_size), 2]
+#     ])
+#     datay.append([])
+#     for x in range(future_window):
+#       datay[i].append(data[i + x + window_size, 1])
+#   return datax, datay
 
 def format_traintest_data(df, window_size, future_window, train_test_split):
   scaler = MinMaxScaler(feature_range=(-1, 1))
@@ -54,7 +54,7 @@ def format_validation_data(df, window_size, future_window):
   scaler = MinMaxScaler(feature_range=(-1, 1))
   dataset = np.array(df)
   dataset = scaler.fit_transform(dataset)
-  datax, datay = forecast(dataset, window_size, future_window)
+  datax, datay = forecast_temp(dataset, window_size, future_window)
   x_test = np.expand_dims(np.array(datax).astype(np.float32), axis=2)
   y_test = np.expand_dims(np.array(datay).astype(np.float32), axis=2)
   return x_test, y_test, scaler
@@ -100,17 +100,13 @@ def test_network(model, x_test, y_test, scaler):
 # Format
 
 if __name__ == "__main__":
-  print('Loading data...')
   df = util.load_temp_data()
-
-  print('Total Data Points: {}'.format(len(df.time)))
-
   FEATURES = 1
-  WINDOW_SIZE = 48
+  WINDOW_SIZE = 72
   FUTURE_WINDOW = 24
   TRAIN_TEST_SPLIT = 0.8
   NODES = 16
-  EPOCHS = 100
+  EPOCHS = 50
   BATCH_SIZE = 500
   OPTIMIZER = optimizers.Adam()
   LOSS = losses.mean_squared_error

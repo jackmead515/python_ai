@@ -26,7 +26,7 @@ def graph_year(df):
   year = np.array(years[5])
   figure = plot.figure(facecolor='white')
   plot.plot(year[:, 0], year[:, 1], color=[0.0, 1.0, 0.0])
-  plot.plot(year[:, 0], year[:, 2], color=[0.0, 0.0, 1.0])
+  #plot.plot(year[:, 0], year[:, 2], color=[0.0, 0.0, 1.0])
   plot.show()
 
 def graph_months(df):
@@ -89,6 +89,6 @@ if __name__ == "__main__":
   # graph_whole(df)
   # graph_years(df)
   # graph_year(df)
-  # graph_months(df)
+  graph_months(df)
   # graph_days(df)
   # points_per_month(df)
