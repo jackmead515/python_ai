@@ -14,7 +14,7 @@ from keras import losses
 
 def load_confirmed():
   dataset = []
-  df = pd.read_csv('confirmed.csv')
+  df = pd.read_csv('deaths.csv')
   df = df.drop(['Province/State', 'Country/Region', 'Lat', 'Long'], axis=1)
   df = df.dropna()
   for index, col in tqdm(enumerate(df.columns[:])):
@@ -29,7 +29,9 @@ def load_confirmed():
       if row[index] > 0:
         c += row[index]
     dataset.append([t, c])
-  return dataset
+  df = pd.DataFrame(dataset)
+  df.columns = ['time', 'cases']
+  return df
 
 def forecast(data, window_size, future_window):
   datax, datay = [], []
@@ -41,35 +43,25 @@ def forecast(data, window_size, future_window):
   return datax, datay
 
 def forecast_format_data(dataset, window_size, future_window, train_test_split):
-  scaler = MinMaxScaler(feature_range=(-1, 1))
+  scaler = MinMaxScaler(feature_range=(0, 1))
   d = np.array(dataset)
   d = scaler.fit_transform(d)
   dx, dy = forecast(d, window_size, future_window)
   tts = int(len(dx)*train_test_split)
-  x_train = np.array(dx[:tts]).astype(np.float32)
-  y_train = np.array(dy[:tts]).astype(np.float32)
-  x_test = np.array(dx[tts+1:]).astype(np.float32)
-  y_test = np.array(dy[tts+1:]).astype(np.float32)
-  x_train = np.expand_dims(x_train, axis=2)
-  y_train = np.expand_dims(y_train, axis=2)
-  x_test = np.expand_dims(x_test, axis=2)
-  y_test = np.expand_dims(y_test, axis=2)
-  return x_train, y_train, x_test, y_test, scaler
 
-def dense_format_data(dataset, train_test_split):
-  scaler = MinMaxScaler(feature_range=(0, 1))
-  d = np.array(dataset)
-  d = scaler.fit_transform(d)
-  tts = int(len(d)*train_test_split)
-  x_train = np.array(d[:tts, 0]).astype(np.float32)
-  y_train = np.array(d[:tts, 1]).astype(np.float32)
-  x_test = np.array(d[tts+1:, 0]).astype(np.float32)
-  y_test = np.array(d[tts+1:, 1]).astype(np.float32)
-  # x_train = np.expand_dims(x_train, axis=2)
-  # y_train = np.expand_dims(y_train, axis=2)
-  # x_test = np.expand_dims(x_test, axis=2)
-  # y_test = np.expand_dims(y_test, axis=2)
-  return x_train, y_train, x_test, y_test, scaler
+  x_train = np.array(dx[:tts]).astype(np.float32)
+  x_train = np.expand_dims(x_train, axis=2)
+
+  x_test = np.array(dx[tts+1:]).astype(np.float32)
+  x_test = np.expand_dims(x_test, axis=2)
+
+  y_train = np.array(dy[:tts]).astype(np.float32)
+  y_train = np.expand_dims(y_train, axis=2)
+
+  y_test = np.array(dy[tts+1:]).astype(np.float32)
+  y_test = np.expand_dims(y_test, axis=2)
+  
+  return x_train, y_train, x_test, y_test, scaler, tts
 
 def build_network(nodes, window_size, future_window, features, optimizer, loss):
   model = models.Sequential()
@@ -88,70 +80,71 @@ def train_network(model, x_train, y_train, epochs, batch_size):
   plot.show()
 
 def test_network(model, x_test, y_test, scaler):
-  pred_test = model.predict(x_test)
+  py_test = model.predict(x_test)
+  red_color = [1.0,0.0,0.0]
+  gre_color = [0.0,1.0,0.0]
 
   tscaler = MinMaxScaler()
   tscaler.min_, tscaler.scale_ = scaler.min_[1], scaler.scale_[1]
-  pred_test = tscaler.inverse_transform(pred_test)
+  py_test = tscaler.inverse_transform(py_test)
   y_test = tscaler.inverse_transform(y_test)
-  score = np.sqrt(mean_squared_error(pred_test, y_test))
+  score = np.sqrt(mean_squared_error(py_test, y_test))
   print("Testing Score (RMSE): {}".format(score))
+  
+  sindex = 0
+  for index in range(py_test.shape[0]):
+    plot.plot(
+      np.arange(sindex, py_test.shape[1]+sindex),
+      py_test[index, :],
+      color=gre_color,
+      marker='.',
+      label='predicted'
+    )
+    sindex += 1
+  
+  plot.plot(
+    np.arange(y_test.shape[1]),
+    y_test[0, :],
+    color=red_color,
+    marker='.',
+    label='actual'
+  )
 
-  plot.plot(np.arange(pred_test.shape[1]), pred_test[0, :], color=[0.0,0.0,1.0], marker='.')
-  # plot.plot(np.arange(y_test.shape[0]), y_test[:, 0])
-  plot.plot(np.arange(48), y_test[:48, 0], color=[1.0,0.0,0.0], marker='.')
+  plot.title("Predicted Growth Rate of COVID-19 Cases")
+  # plot.legend(loc="upper left")
+  plot.xlabel("Days Into Future")
+  plot.ylabel("COVID19 Cases")
+
   plot.show()
 
 if __name__ == "__main__":
   FEATURES = 1
   WINDOW_SIZE = 7
-  FUTURE_WINDOW = 7
+  FUTURE_WINDOW = 30
   TRAIN_TEST_SPLIT = 0.8
-  NODES = 16
-  EPOCHS = 20
-  BATCH_SIZE = 5
+  NODES = 32
+  EPOCHS = 100
+  BATCH_SIZE = 10
   OPTIMIZER = optimizers.Adam()
-  LOSS = losses.binary_crossentropy
+  LOSS = losses.mean_squared_error
 
   dataset = load_confirmed()
-  x_train, y_train, x_test, y_test, tscaler = dense_format_data(dataset, TRAIN_TEST_SPLIT)
 
-  print(y_test)
-  print(x_test)
+  print(dataset.shape)
+  print(dataset.head())
 
-  model = models.Sequential()
-  model.add(layers.Dense(NODES, input_shape=(1,)))
-  model.add(layers.Dense(1))
-  model.compile(optimizer=OPTIMIZER, loss=LOSS, metrics=['accuracy'])
-  history = model.fit(x_train, [x for x in range(len(x_train))], epochs=EPOCHS, batch_size=BATCH_SIZE)
-  plot.plot(np.arange(EPOCHS), history.history['loss'])
-  plot.plot(np.arange(EPOCHS), history.history['accuracy'])
-  plot.show()
+  x_train, y_train, x_test, y_test, tscaler, tts = forecast_format_data(dataset, WINDOW_SIZE, FUTURE_WINDOW, TRAIN_TEST_SPLIT)
 
-  pred_test = model.predict(x_test)
-  tscaler = MinMaxScaler()
-  tscaler.min_, tscaler.scale_ = tscaler.min_[1], tscaler.scale_[1]
-  pred_test = tscaler.inverse_transform(pred_test)
-  y_test = tscaler.inverse_transform(y_test)
-  score = np.sqrt(mean_squared_error(pred_test, y_test))
-  print("Testing Score (RMSE): {}".format(score))
+  y_test = np.squeeze(y_test, axis=2)
+  y_train = np.squeeze(y_train, axis=2)
 
-  # plot.plot(np.arange(pred_test.shape[1]), pred_test[0, :], color=[0.0,0.0,1.0], marker='.')
-  # # plot.plot(np.arange(y_test.shape[0]), y_test[:, 0])
-  # plot.plot(np.arange(48), y_test[:48, 0], color=[1.0,0.0,0.0], marker='.')
-  # plot.show()
+  print('tts', tts)
+  print('x_train', x_train.shape)
+  print('y_train', y_train.shape)
+  print('x_test', x_test.shape)
+  print('y_test', y_test.shape)
 
-  # x_train = np.squeeze(x_train, axis=2)
+  model = build_network(NODES, WINDOW_SIZE, FUTURE_WINDOW, FEATURES, OPTIMIZER, LOSS)
 
-  # print(x_train)
-
-  # # y_test = np.squeeze(y_test, axis=2)
-  # y_train = np.squeeze(y_train, axis=2)
-
-  # print('x_train', x_train.shape)
-  # print('y_train', y_train.shape)
-
-  # model = build_network(NODES, WINDOW_SIZE, FUTURE_WINDOW, FEATURES, OPTIMIZER, LOSS)
-
-  # train_network(model, x_train, y_train, EPOCHS, BATCH_SIZE)
-  # test_network(model, x_test, y_test, tscaler)
+  train_network(model, x_train, y_train, EPOCHS, BATCH_SIZE)
+  test_network(model, x_test, y_test, tscaler)
